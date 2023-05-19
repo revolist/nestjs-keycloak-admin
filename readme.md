@@ -1,5 +1,29 @@
 # Keycloak for Nest.js
 
+## CommonJS Modification
+
+This is a modified version of the original Keycloak module for NestJS, designed to support CommonJS module import. `public static register(options: KeycloakModuleOptions): DynamicModule` was removed.
+
+
+Register module with:
+
+```
+KeycloakModule.registerAsync({
+  useFactory: async (configService: ConfigService) => {
+    return {
+      baseUrl: 'your-keycloak-url',
+      realmName: 'your-realm',
+      clientId: 'your-client-id',
+      clientSecret: 'your-client-secret',
+    };
+  },
+})
+```
+
+Make sure to replace the placeholder values with your actual Keycloak configuration details.
+
+<b>Note</b>: This modified version of the Keycloak module is provided as-is and is not officially supported by the original package maintainers. Use it at your own discretion.
+
 ## Installation
 
 Install using `npm i --save nestjs-keycloak-admin` or `pnpm add nestjs-keycloak-admin`

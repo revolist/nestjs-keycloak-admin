@@ -1,5 +1,4 @@
 import { Logger, Global } from '@nestjs/common'
-import AdminClient from '@keycloak/keycloak-admin-client'
 import { Client, Issuer, TokenSet } from 'openid-client'
 import { resolve } from 'url'
 import { ResourceManager } from './lib/resource-manager'
@@ -17,14 +16,16 @@ export class KeycloakService {
   private issuerClient?: Client
 
   private baseUrl: string
-  private requestManager: RequestManager
+  private requestManager!: RequestManager
   public umaConfiguration?: UMAConfiguration
   public readonly options: KeycloakModuleOptions
 
   public connect: Keycloak
   public permissionManager!: PermissionManager
   public resourceManager!: ResourceManager
-  public client: AdminClient
+  public client: any
+
+  private tokenAttempt = 0
 
   constructor(options: KeycloakModuleOptions) {
     if (!options.baseUrl.startsWith('http')) {
@@ -46,34 +47,48 @@ export class KeycloakService {
     }
 
     this.connect = keycloak as Keycloak
-    this.client = new AdminClient({
-      baseUrl: this.options.baseUrl,
-      realmName: this.options.realmName,
-    })
 
-    this.requestManager = new RequestManager(this, this.baseUrl)
+  }
+
+  async start() {
+      const { default: AdminClient } = await (eval(`import('@keycloak/keycloak-admin-client')`));
+      this.client = new AdminClient({
+        baseUrl: this.options.baseUrl,
+        realmName: this.options.realmName,
+      });
+      this.requestManager = new RequestManager(this, this.baseUrl)
   }
 
   async initialize(): Promise<void> {
     if (this.umaConfiguration) {
+      this.logger.verbose(`Keycloak client configuration preset`)
       return
     }
+    this.logger.verbose(`Initializing Keycloak client`)
+    await this.start();
+    this.logger.verbose(`Connecting Keycloak ResourceManager`)
     const { clientId, clientSecret } = this.options
-    const { data } = await this.requestManager.get<UMAConfiguration>(
-      '/.well-known/uma2-configuration'
-    )
-    this.umaConfiguration = data
+    
+    try {
+      const { data } = await this.requestManager.get<UMAConfiguration>(
+        '/.well-known/uma2-configuration'
+      )
+      this.umaConfiguration = data
+      this.resourceManager = new ResourceManager(this, data.resource_registration_endpoint)
+    } catch (err) {
+      this.logger.error(err)
+      throw err
+    }
+    this.permissionManager = new PermissionManager(this, this.umaConfiguration.token_endpoint)
 
-    this.resourceManager = new ResourceManager(this, data.resource_registration_endpoint)
-    this.permissionManager = new PermissionManager(this, data.token_endpoint)
-
-    const keycloakIssuer = await Issuer.discover(data.issuer)
+    const keycloakIssuer = await Issuer.discover(this.umaConfiguration.issuer)
 
     this.issuerClient = new keycloakIssuer.Client({
       client_id: clientId,
       client_secret: clientSecret,
     })
 
+    this.logger.verbose(`Connecting client_credentials`)
     this.tokenSet = await this.issuerClient.grant({
       clientId,
       clientSecret,
@@ -86,16 +101,20 @@ export class KeycloakService {
       this.logger.verbose(`Initial token expires at ${this.tokenSet.expires_at}`)
     }
   }
-
   async refreshGrant(): Promise<TokenSet | undefined | null> {
     if (!this.tokenSet) {
-      await this.initialize()
+      if (this.tokenAttempt < 3) {
+        await this.initialize()
+      }
+      this.logger.debug(`Refresh token not set.`)
+      return undefined
     }
 
     if (!this.tokenSet?.expired()) {
-      return this.tokenSet
+      this.logger.debug(`Refresh tokenexpired.`)
+      return undefined
     }
-
+    this.tokenAttempt = 0
     if (!this.tokenSet.refresh_token) {
       this.logger.debug(`Refresh token is missing. Reauthenticating.`)
 

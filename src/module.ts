@@ -9,15 +9,6 @@ import { KeycloakModuleOptions, KeycloakModuleAsyncOptions } from './@types/pack
   exports: [KeycloakService],
 })
 export class KeycloakModule {
-  public static register(options: KeycloakModuleOptions): DynamicModule {
-    const provider = this.getOptionsProvider(options)
-    return {
-      module: KeycloakModule,
-      providers: [provider, this.keycloakProvider],
-      exports: [provider, this.keycloakProvider],
-    }
-  }
-
   public static registerAsync(options: KeycloakModuleAsyncOptions): DynamicModule {
     const customOptions = this.getCustomOptions(options)
 
@@ -40,7 +31,7 @@ export class KeycloakModule {
   private static keycloakProvider: Provider = {
     provide: KeycloakService,
     useFactory: async (options: KeycloakModuleOptions) => {
-      const client = new KeycloakService(options)
+      const client = new KeycloakService(options);
       await client.initialize()
       return client
     },
